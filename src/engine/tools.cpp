@@ -34,12 +34,13 @@
 #include <zconf.h>
 #include <zlib.h>
 
-// --- ACCESSIBILITY INCLUDES START ---
+// --- ACCESSIBILITY FIX START ---
 #ifdef __ANDROID__
 #include <jni.h>
-#include <SDL_system.h>
+// Используем кавычки и основной заголовок для совместимости
+#include "SDL.h"
 #endif
-// --- ACCESSIBILITY INCLUDES END ---
+// --- ACCESSIBILITY FIX END ---
 
 std::string StringTrim( std::string str )
 {
@@ -194,6 +195,9 @@ void SpeakAccessibility( const std::string & text )
         return;
     }
 
+    // Объявляем функцию вручную, чтобы избежать ошибок "implicit declaration"
+    extern "C" void* SDL_AndroidGetJNIEnv();
+
     JNIEnv * env = (JNIEnv *)SDL_AndroidGetJNIEnv();
 
     if ( !env ) {
@@ -213,6 +217,9 @@ void SpeakAccessibility( const std::string & text )
         }
         env->DeleteLocalRef( clazz );
     }
+#else
+    // Заглушка для Windows/Linux, чтобы избежать предупреждений о неиспользуемой переменной
+    (void)text;
 #endif
 }
 // --- ACCESSIBILITY CODE END ---
