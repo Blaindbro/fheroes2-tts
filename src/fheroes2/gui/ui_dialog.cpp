@@ -63,7 +63,6 @@ namespace
 {
     const int32_t textOffsetY = 10;
     const int32_t elementOffsetX = 10;
-    // Мы удалили лишние переменные textOffsetFromElement и defaultElementPopupButtons, чтобы не было ошибок
 
     void outputInTextSupportMode( const fheroes2::TextBase & header, const fheroes2::TextBase & body, const int buttonTypes )
     {
@@ -260,7 +259,6 @@ namespace fheroes2
 
     int32_t getDialogHeight( const TextBase & header, const TextBase & body, const int buttons, const std::vector<const DialogElement *> & elements )
     {
-        // Заглушки, чтобы компилятор не ругался на неиспользуемые параметры
         (void)buttons;
         (void)elements;
 
@@ -273,6 +271,14 @@ namespace fheroes2
         }
 
         return overallTextHeight;
+    }
+
+    // --- ВОССТАНОВЛЕННЫЕ ФУНКЦИИ ---
+
+    void showStandardTextMessage( const std::string & msg, const std::string & image, const int buttons, const std::vector<const DialogElement *> & elements )
+    {
+        showMessage( Text(), Text( msg, FontType::normalWhite() ), buttons, elements );
+        (void)image; // Заглушка, если image не используется в этой версии
     }
 
     int MessageBox( const std::string & msg, const int buttons )
