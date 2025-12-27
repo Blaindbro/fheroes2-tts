@@ -1,21 +1,21 @@
 /***************************************************************************
- *   fheroes2: https://github.com/ihhub/fheroes2                           *
- *   Copyright (C) 2022 - 2025                                             *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program; if not, write to the                         *
- *   Free Software Foundation, Inc.,                                       *
- *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+ * fheroes2: https://github.com/ihhub/fheroes2                           *
+ * Copyright (C) 2022 - 2025                                             *
+ * *
+ * This program is free software; you can redistribute it and/or modify  *
+ * it under the terms of the GNU General Public License as published by  *
+ * the Free Software Foundation; either version 2 of the License, or     *
+ * (at your option) any later version.                                   *
+ * *
+ * This program is distributed in the hope that it will be useful,       *
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ * GNU General Public License for more details.                          *
+ * *
+ * You should have received a copy of the GNU General Public License     *
+ * along with this program; if not, write to the                         *
+ * Free Software Foundation, Inc.,                                       *
+ * 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
 package org.fheroes2;
@@ -32,6 +32,13 @@ import java.util.List;
 import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
+
+// --- ACCESSIBILITY IMPORTS START ---
+import android.os.Handler;
+import android.os.Looper;
+import android.view.View;
+import android.view.accessibility.AccessibilityEvent;
+// --- ACCESSIBILITY IMPORTS END ---
 
 import org.apache.commons.io.IOUtils;
 
@@ -146,4 +153,26 @@ public final class GameActivity extends SDLActivity
 
         return result;
     }
+
+    // --- ACCESSIBILITY CODE START ---
+    
+    // This method will be called from C++ via JNI to speak text
+    public static void sendToScreenReader( String text )
+    {
+        if ( mSurface == null ) {
+            return;
+        }
+
+        final String msg = text;
+
+        // Run on the UI thread because accessibility events must be triggered from there
+        new Handler( Looper.getMainLooper() ).post( new Runnable() {
+            @Override
+            public void run()
+            {
+                mSurface.announceForAccessibility( msg );
+            }
+        } );
+    }
+    // --- ACCESSIBILITY CODE END ---
 }
