@@ -62,11 +62,8 @@ class HeroBase;
 namespace
 {
     const int32_t textOffsetY = 10;
-
     const int32_t elementOffsetX = 10;
-
     const int32_t textOffsetFromElement = 2;
-
     const int32_t defaultElementPopupButtons = Dialog::ZERO;
 
     void outputInTextSupportMode( const fheroes2::TextBase & header, const fheroes2::TextBase & body, const int buttonTypes )
@@ -99,19 +96,16 @@ namespace fheroes2
         outputInTextSupportMode( header, body, buttons );
 
         // --- ACCESSIBILITY CODE START ---
-        // Озвучиваем текст заголовка и тела диалога
+        // Озвучиваем заголовок и текст сообщения
         if ( !header.empty() ) {
             SpeakAccessibility( header.text() );
         }
         if ( !body.empty() ) {
-            // Небольшая задержка или просто последовательный вызов, чтобы скринридер успел
-            // (В простой реализации мы просто отправляем второй кусок текста)
             SpeakAccessibility( body.text() );
         }
         // --- ACCESSIBILITY CODE END ---
 
         const bool isProperDialog = ( buttons != 0 );
-
         const int cusorTheme = isProperDialog ? ::Cursor::POINTER : ::Cursor::Get().Themes();
 
         // setup cursor
@@ -266,34 +260,43 @@ namespace fheroes2
         return result;
     }
 
+    // --- Функции-обертки, которые были в конце файла и нужны для сборки ---
+
     int32_t getDialogHeight( const TextBase & header, const TextBase & body, const int buttons, const std::vector<const DialogElement *> & elements )
     {
         const int32_t headerHeight = header.empty() ? 0 : header.height( fheroes2::boxAreaWidthPx ) + textOffsetY;
-
         int overallTextHeight = headerHeight;
 
         const int32_t bodyTextHeight = body.height( fheroes2::boxAreaWidthPx );
-        // ... (rest of the file as needed, but this is the crucial part)
-        // Note: The rest of the original file content should follow here. 
-        // I have pasted the modified `showMessage` function above which is the key.
-        // Make sure to not cut off the rest of the file if you are doing a full replace manually,
-        // but for this specific request, the `showMessage` modification handles the MessageBox/Dialog logic.
-        
-        // However, based on your paste, you provided a truncated file ending at `getDialogHeight`.
-        // If your original file was longer, please be careful.
-        // Assuming I should return only what you gave me + the fix:
         if ( bodyTextHeight > 0 ) {
             overallTextHeight += bodyTextHeight + textOffsetY;
         }
-        
-        return overallTextHeight; // Just closing the function based on context
+
+        return overallTextHeight;
     }
-    
-    // Additional wrappers for MessageBox (Optional but good to have)
+
     void MessageBox( const std::string & msg, const int buttons )
     {
-        // Simple MessageBox wrapper
-        Text text( msg, FontType::normalWhite() );
+        const Text text( msg, FontType::normalWhite() );
         showMessage( Text(), text, buttons );
+    }
+
+    void MessageBox( const std::string & msg, const std::function<void( void )> & callback )
+    {
+        MessageBox( msg );
+        if ( callback ) {
+            callback();
+        }
+    }
+
+    bool Confirm( const std::string & msg )
+    {
+        return MessageBox( msg, Dialog::YES | Dialog::NO ) == Dialog::YES;
+    }
+
+    int Select( const std::string & msg, const std::string & first, const std::string & second )
+    {
+        // Simple implementation for text support
+        return Confirm( msg + " (" + first + " / " + second + ")" ) ? 1 : 2;
     }
 }
