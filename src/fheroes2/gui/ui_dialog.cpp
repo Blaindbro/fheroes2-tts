@@ -96,7 +96,6 @@ namespace fheroes2
         outputInTextSupportMode( header, body, buttons );
 
         // --- ACCESSIBILITY CODE START ---
-        // Озвучиваем заголовок и текст сообщения
         if ( !header.empty() ) {
             SpeakAccessibility( header.text() );
         }
@@ -260,10 +259,12 @@ namespace fheroes2
         return result;
     }
 
-    // --- Функции-обертки, которые были в конце файла и нужны для сборки ---
-
     int32_t getDialogHeight( const TextBase & header, const TextBase & body, const int buttons, const std::vector<const DialogElement *> & elements )
     {
+        // ИСПРАВЛЕНИЕ 1: Глушим ошибки о неиспользуемых параметрах
+        (void)buttons;
+        (void)elements;
+
         const int32_t headerHeight = header.empty() ? 0 : header.height( fheroes2::boxAreaWidthPx ) + textOffsetY;
         int overallTextHeight = headerHeight;
 
@@ -275,15 +276,17 @@ namespace fheroes2
         return overallTextHeight;
     }
 
-    void MessageBox( const std::string & msg, const int buttons )
+    // ИСПРАВЛЕНИЕ 2: Возвращаем int, а не void, чтобы Confirm мог проверить результат
+    int MessageBox( const std::string & msg, const int buttons )
     {
         const Text text( msg, FontType::normalWhite() );
-        showMessage( Text(), text, buttons );
+        return showMessage( Text(), text, buttons );
     }
 
     void MessageBox( const std::string & msg, const std::function<void( void )> & callback )
     {
-        MessageBox( msg );
+        // ИСПРАВЛЕНИЕ 3: Добавляем второй аргумент Dialog::OK
+        MessageBox( msg, Dialog::OK );
         if ( callback ) {
             callback();
         }
@@ -291,6 +294,7 @@ namespace fheroes2
 
     bool Confirm( const std::string & msg )
     {
+        // Теперь это сработает, так как MessageBox возвращает int
         return MessageBox( msg, Dialog::YES | Dialog::NO ) == Dialog::YES;
     }
 
