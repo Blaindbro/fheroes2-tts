@@ -1,24 +1,6 @@
 /***************************************************************************
  * fheroes2: https://github.com/ihhub/fheroes2                           *
  * Copyright (C) 2019 - 2025                                             *
- * *
- * Free Heroes2 Engine: http://sourceforge.net/projects/fheroes2         *
- * Copyright (C) 2009 by Andrey Afletdinov <fheroes2@gmail.com>          *
- * *
- * This program is free software; you can redistribute it and/or modify  *
- * it under the terms of the GNU General Public License as published by  *
- * the Free Software Foundation; either version 2 of the License, or     *
- * (at your option) any later version.                                   *
- * *
- * This program is distributed in the hope that it will be useful,       *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- * GNU General Public License for more details.                          *
- * *
- * You should have received a copy of the GNU General Public License     *
- * along with this program; if not, write to the                         *
- * Free Software Foundation, Inc.,                                       *
- * 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
 #include "tools.h"
@@ -37,8 +19,11 @@
 // --- ACCESSIBILITY FIX START ---
 #ifdef __ANDROID__
 #include <jni.h>
-// Используем кавычки и основной заголовок для совместимости
-#include "SDL.h"
+
+// Объявляем функцию SDL здесь, глобально.
+// extern "C" нужно, чтобы C++ понял, что это функция из C-библиотеки.
+extern "C" void* SDL_AndroidGetJNIEnv();
+
 #endif
 // --- ACCESSIBILITY FIX END ---
 
@@ -48,21 +33,18 @@ std::string StringTrim( std::string str )
         return str;
     }
 
-    // left
     std::string::iterator iter = str.begin();
     while ( iter != str.end() && std::isspace( static_cast<unsigned char>( *iter ) ) ) {
         ++iter;
     }
 
     if ( iter == str.end() ) {
-        // Do not erase anything if we reached the end of the string. Just immediately return an empty string.
         return {};
     }
 
     if ( iter != str.begin() )
         str.erase( str.begin(), iter );
 
-    // right
     iter = str.end() - 1;
     while ( iter != str.begin() && std::isspace( static_cast<unsigned char>( *iter ) ) ) {
         --iter;
@@ -148,12 +130,10 @@ namespace fheroes2
         const size_t originalEndingSize = strlen( originalEnding );
         const size_t correctedEndingSize = strlen( correctedEnding );
         if ( output.size() < originalEndingSize ) {
-            // The original string is smaller than the ending.
             return;
         }
 
         if ( memcmp( output.data() + output.size() - originalEndingSize, originalEnding, originalEndingSize ) != 0 ) {
-            // The string does not have the required ending.
             return;
         }
 
@@ -176,7 +156,6 @@ namespace fheroes2
     void appendModifierToString( std::string & str, const int mod )
     {
         if ( mod < 0 ) {
-            // The minus sign is already present
             str.append( " " );
         }
         else if ( mod > 0 ) {
@@ -195,16 +174,13 @@ void SpeakAccessibility( const std::string & text )
         return;
     }
 
-    // Объявляем функцию вручную, чтобы избежать ошибок "implicit declaration"
-    extern "C" void* SDL_AndroidGetJNIEnv();
-
-    JNIEnv * env = (JNIEnv *)SDL_AndroidGetJNIEnv();
+    // ИСПРАВЛЕНИЕ: Используем static_cast вместо (JNIEnv*), так как проект запрещает старые касты.
+    JNIEnv * env = static_cast<JNIEnv *>( SDL_AndroidGetJNIEnv() );
 
     if ( !env ) {
         return;
     }
 
-    // Important: The package path must match GameActivity.java (org/fheroes2/GameActivity)
     jclass clazz = env->FindClass( "org/fheroes2/GameActivity" );
 
     if ( clazz ) {
@@ -218,7 +194,7 @@ void SpeakAccessibility( const std::string & text )
         env->DeleteLocalRef( clazz );
     }
 #else
-    // Заглушка для Windows/Linux, чтобы избежать предупреждений о неиспользуемой переменной
+    // Заглушка для ПК
     (void)text;
 #endif
 }
