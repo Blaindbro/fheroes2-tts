@@ -8,26 +8,32 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
 
-// --- ACCESSIBILITY IMPORTS START ---
+// --- ACCESSIBILITY & TTS IMPORTS ---
 import android.os.Handler;
 import android.os.Looper;
 import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityEvent;
-// --- ACCESSIBILITY IMPORTS END ---
+import android.speech.tts.TextToSpeech;
+// ------------------------------------
 
 import org.apache.commons.io.IOUtils;
-
 import org.libsdl.app.SDLActivity;
 
-public final class GameActivity extends SDLActivity
+public final class GameActivity extends SDLActivity implements TextToSpeech.OnInitListener
 {
-    // Статический хендлер, чтобы не создавать новые объекты при каждом сообщении статусбара
     private static final Handler uiHandler = new Handler(Looper.getMainLooper());
+    private static TextToSpeech tts;
+    private static boolean isTtsReady = false;
+    
+    // Для предотвращения зацикливания и спама одинаковыми звуками
+    private static String lastText = "";
+    private static long lastSpeakTime = 0;
 
     @Override
     protected void onCreate( final Bundle savedInstanceState )
@@ -39,7 +45,6 @@ public final class GameActivity extends SDLActivity
             try {
                 extractAssets( "files", externalFilesDir );
                 extractAssets( "maps", externalFilesDir );
-                // Digest should be updated only after successful extraction of all assets
                 extractAssets( "assets.digest", filesDir );
             }
             catch ( final Exception ex ) {
@@ -47,47 +52,78 @@ public final class GameActivity extends SDLActivity
             }
         }
 
+        // Инициализация TTS
+        tts = new TextToSpeech(this, this);
+
         super.onCreate( savedInstanceState );
 
-        // If the minimum set of game assets has not been found, run the toolset activity instead
         if ( !HoMM2AssetManagement.isHoMM2AssetsPresent( externalFilesDir ) ) {
             startActivity( new Intent( this, ToolsetActivity.class ) );
-
-            // Replace this activity with the newly launched activity
             finish();
-        } else {
-            // Озвучка при успешном запуске игры
-            sendToScreenReader("Accessibility patch is connected. Welcome to Heroes 2.");
         }
     }
 
     @Override
-    protected void onDestroy()
-    {
-        super.onDestroy();
-        System.exit( 0 );
+    public void onInit(int status) {
+        if (status == TextToSpeech.SUCCESS) {
+            tts.setLanguage(Locale.getDefault());
+            tts.setPitch(1.0f);
+            tts.setSpeechRate(1.1f); // Чуть быстрее для удобства
+            isTtsReady = true;
+            sendToScreenReader("Accessibility patch is active.");
+        }
     }
 
-    // --- ACCESSIBILITY TOUCH INTERCEPTION START ---
+    // --- УЛУЧШЕННЫЙ ПЕРЕХВАТ ЖЕСТОВ ---
     @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
-        // Прокидываем события касания в систему доступности
-        if (mSurface != null && (event.getAction() == MotionEvent.ACTION_DOWN || event.getAction() == MotionEvent.ACTION_MOVE)) {
-            mSurface.sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_HOVER_ENTER);
+        if (mSurface != null) {
+            // Генерируем HOVER события, чтобы TalkBack понимал, что мы "исследуем" экран
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+                mSurface.sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_HOVER_ENTER);
+            }
         }
         return super.dispatchTouchEvent(event);
     }
 
-    @Override
-    public boolean dispatchGenericMotionEvent(MotionEvent event) {
-        // Поддержка ховер-событий (для стилусов или TalkBack навигации)
-        if (mSurface != null && event.getAction() == MotionEvent.ACTION_HOVER_MOVE) {
-            mSurface.sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_HOVER_ENTER);
-        }
-        return super.dispatchGenericMotionEvent(event);
-    }
-    // --- ACCESSIBILITY TOUCH INTERCEPTION END ---
+    // --- ОСНОВНОЙ МЕТОД ОЗВУЧКИ ---
+    public static void sendToScreenReader(final String text) {
+        if (text == null || text.trim().isEmpty()) return;
 
+        uiHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                long currentTime = System.currentTimeMillis();
+                
+                // Фильтр: не повторять то же самое чаще чем раз в 1.5 сек (защита от спама статусбара)
+                if (text.equals(lastText) && (currentTime - lastSpeakTime < 1500)) {
+                    return; 
+                }
+
+                if (isTtsReady && tts != null) {
+                    lastText = text;
+                    lastSpeakTime = currentTime;
+                    
+                    // QUEUE_ADD — сообщения встают в очередь и не прерываются
+                    tts.speak(text, TextToSpeech.QUEUE_ADD, null, "f2_tts_out");
+                    Log.d("fheroes2_acc", "Spoken: " + text);
+                }
+            }
+        });
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
+        }
+        super.onDestroy();
+        System.exit( 0 );
+    }
+
+    // --- СТАНДАРТНЫЕ МЕТОДЫ FHEROES2 (БЕЗ ИЗМЕНЕНИЙ) ---
     @SuppressWarnings( "SameParameterValue" )
     private boolean isAssetsDigestChanged( final String assetsDigestPath, final File localDigestFile )
     {
@@ -96,17 +132,13 @@ public final class GameActivity extends SDLActivity
                 if ( Arrays.equals( IOUtils.toByteArray( assetsDigestStream ), IOUtils.toByteArray( localDigestStream ) ) ) {
                     return false;
                 }
-
                 Log.i( "fheroes2", "Digest of assets has been changed." );
+            } catch ( final Exception ex ) {
+                Log.i( "fheroes2", "Failed to access the local digest.", ex );
             }
-            catch ( final Exception ex ) {
-                Log.i( "fheroes2", "Failed to access the local digest. Considering the digest of assets as changed.", ex );
-            }
+        } catch ( final Exception ex ) {
+            Log.e( "fheroes2", "Failed to access the digest of assets.", ex );
         }
-        catch ( final Exception ex ) {
-            Log.e( "fheroes2", "Failed to access the digest of assets. Considering the digest of assets as changed.", ex );
-        }
-
         return true;
     }
 
@@ -115,12 +147,8 @@ public final class GameActivity extends SDLActivity
         for ( final String path : getAssetsPaths( srcPath ) ) {
             try ( final InputStream in = getAssets().open( path ) ) {
                 final File outFile = new File( dstDir, path );
-
                 final File outFileDir = outFile.getParentFile();
-                if ( outFileDir != null ) {
-                    Files.createDirectories( outFileDir.toPath() );
-                }
-
+                if ( outFileDir != null ) Files.createDirectories( outFileDir.toPath() );
                 try ( final OutputStream out = Files.newOutputStream( outFile.toPath() ) ) {
                     IOUtils.copy( in, out );
                 }
@@ -131,46 +159,15 @@ public final class GameActivity extends SDLActivity
     private List<String> getAssetsPaths( final String path ) throws IOException
     {
         final List<String> result = new ArrayList<>();
-
         final String[] assets = getAssets().list( path );
-
-        if ( assets == null ) {
-            return result;
-        }
-
+        if ( assets == null ) return result;
         if ( assets.length == 0 ) {
             result.add( path );
-
             return result;
         }
-
         for ( final String asset : assets ) {
             result.addAll( getAssetsPaths( path + File.separator + asset ) );
         }
-
         return result;
     }
-
-    // --- ACCESSIBILITY CODE START ---
-    
-    public static void sendToScreenReader( final String text )
-    {
-        if ( text == null || text.isEmpty() ) {
-            return;
-        }
-
-        // Используем статический хендлер для отправки в UI-поток
-        uiHandler.post( new Runnable() {
-            @Override
-            public void run()
-            {
-                if ( mSurface != null ) {
-                    mSurface.announceForAccessibility( text );
-                    // Лог для проверки в терминале через adb logcat
-                    Log.d("fheroes2_acc", "TTS Message: " + text);
-                }
-            }
-        } );
-    }
-    // --- ACCESSIBILITY CODE END ---
 }
