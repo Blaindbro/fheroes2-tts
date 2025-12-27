@@ -63,8 +63,8 @@ namespace
 {
     const int32_t textOffsetY = 10;
     const int32_t elementOffsetX = 10;
-    const int32_t textOffsetFromElement = 2;
-    const int32_t defaultElementPopupButtons = Dialog::ZERO;
+    // УДАЛЕНО: textOffsetFromElement (не используется)
+    // УДАЛЕНО: defaultElementPopupButtons (не используется)
 
     void outputInTextSupportMode( const fheroes2::TextBase & header, const fheroes2::TextBase & body, const int buttonTypes )
     {
@@ -261,7 +261,6 @@ namespace fheroes2
 
     int32_t getDialogHeight( const TextBase & header, const TextBase & body, const int buttons, const std::vector<const DialogElement *> & elements )
     {
-        // ИСПРАВЛЕНИЕ 1: Глушим ошибки о неиспользуемых параметрах
         (void)buttons;
         (void)elements;
 
@@ -276,7 +275,6 @@ namespace fheroes2
         return overallTextHeight;
     }
 
-    // ИСПРАВЛЕНИЕ 2: Возвращаем int, а не void, чтобы Confirm мог проверить результат
     int MessageBox( const std::string & msg, const int buttons )
     {
         const Text text( msg, FontType::normalWhite() );
@@ -285,7 +283,6 @@ namespace fheroes2
 
     void MessageBox( const std::string & msg, const std::function<void( void )> & callback )
     {
-        // ИСПРАВЛЕНИЕ 3: Добавляем второй аргумент Dialog::OK
         MessageBox( msg, Dialog::OK );
         if ( callback ) {
             callback();
@@ -294,13 +291,11 @@ namespace fheroes2
 
     bool Confirm( const std::string & msg )
     {
-        // Теперь это сработает, так как MessageBox возвращает int
         return MessageBox( msg, Dialog::YES | Dialog::NO ) == Dialog::YES;
     }
 
     int Select( const std::string & msg, const std::string & first, const std::string & second )
     {
-        // Simple implementation for text support
         return Confirm( msg + " (" + first + " / " + second + ")" ) ? 1 : 2;
     }
 }
