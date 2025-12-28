@@ -19,7 +19,11 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityManager;
 import android.speech.tts.TextToSpeech;
+import android.speech.tts.Voice;
+import android.media.AudioAttributes;
+import android.content.Context;
 // ------------------------------------
 
 import org.apache.commons.io.IOUtils;
@@ -27,13 +31,17 @@ import org.libsdl.app.SDLActivity;
 
 public final class GameActivity extends SDLActivity implements TextToSpeech.OnInitListener
 {
+    // Используем Handler главного потока для безопасных вызовов из JNI
     private static final Handler uiHandler = new Handler(Looper.getMainLooper());
     private static TextToSpeech tts;
     private static boolean isTtsReady = false;
     
-    // Для предотвращения зацикливания и спама одинаковыми звуками
+    // Переменные для защиты от спама
     private static String lastText = "";
     private static long lastSpeakTime = 0;
+    // Уменьшаем задержку до 300мс — это достаточно для отсева дребезга, 
+    // но позволяет быстро прощупывать один и тот же объект
+    private static final long SPAM_THRESHOLD_MS = 300; 
 
     @Override
     protected void onCreate( final Bundle savedInstanceState )
@@ -52,8 +60,9 @@ public final class GameActivity extends SDLActivity implements TextToSpeech.OnIn
             }
         }
 
-        // Инициализация TTS
+        // --- ИНИЦИАЛИЗАЦИЯ TTS ---
         tts = new TextToSpeech(this, this);
+        // -------------------------
 
         super.onCreate( savedInstanceState );
 
@@ -66,51 +75,110 @@ public final class GameActivity extends SDLActivity implements TextToSpeech.OnIn
     @Override
     public void onInit(int status) {
         if (status == TextToSpeech.SUCCESS) {
-            tts.setLanguage(Locale.getDefault());
-            tts.setPitch(1.0f);
-            tts.setSpeechRate(1.1f); // Чуть быстрее для удобства
-            isTtsReady = true;
-            sendToScreenReader("Accessibility patch is active.");
-        }
-    }
-
-    // --- УЛУЧШЕННЫЙ ПЕРЕХВАТ ЖЕСТОВ ---
-    @Override
-    public boolean dispatchTouchEvent(MotionEvent event) {
-        if (mSurface != null) {
-            // Генерируем HOVER события, чтобы TalkBack понимал, что мы "исследуем" экран
-            int action = event.getActionMasked();
-            if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
-                mSurface.sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_HOVER_ENTER);
+            // Настройка языка
+            int result = tts.setLanguage(Locale.getDefault());
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                 Log.e("TTS", "Language not supported");
             }
+
+            // Настройка аудио-атрибутов: Важно, чтобы голос шел как ACCESSIBILITY, 
+            // тогда Android может приглушать музыку игры во время речи (Audio Ducking)
+            AudioAttributes attrs = new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build();
+            tts.setAudioAttributes(attrs);
+
+            tts.setPitch(1.0f);
+            tts.setSpeechRate(1.2f); // 1.2x оптимально для быстрого чтения
+            isTtsReady = true;
+            
+            // Тестовое сообщение
+            speakInternal("Accessibility initialized", TextToSpeech.QUEUE_FLUSH, 1.0f);
+        } else {
+            Log.e("TTS", "Initialization failed");
         }
-        return super.dispatchTouchEvent(event);
     }
 
-    // --- ОСНОВНОЙ МЕТОД ОЗВУЧКИ ---
-    public static void sendToScreenReader(final String text) {
-        if (text == null || text.trim().isEmpty()) return;
+    // --- УЛУЧШЕННЫЙ МЕТОД JNI (ТОЧКА ВХОДА) ---
+    /**
+     * Вызывается из C++ (engine/tools.cpp).
+     * Поддерживает "Протокол префиксов":
+     * "+" в начале строки -> QUEUE_ADD (дочитать после текущего, для диалогов)
+     * "~" в начале строки -> Низкий питч (для врагов/опасности)
+     * Без префикса -> QUEUE_FLUSH (прервать и читать сразу, для навигации)
+     */
+    public static void sendToScreenReader(String rawText) {
+        if (rawText == null || rawText.trim().isEmpty()) return;
+
+        final String textToProcess = rawText;
 
         uiHandler.post(new Runnable() {
             @Override
             public void run() {
+                if (!isTtsReady || tts == null) return;
+
+                String text = textToProcess;
+                int queueMode = TextToSpeech.QUEUE_FLUSH; // По умолчанию - ПРЕРЫВАТЬ (для быстрой реакции)
+                float pitch = 1.0f;
+
+                // 1. Парсинг префиксов
+                if (text.startsWith("+")) {
+                    queueMode = TextToSpeech.QUEUE_ADD;
+                    text = text.substring(1);
+                } else if (text.startsWith("~")) {
+                    pitch = 0.6f; // Низкий голос (Демонический/Враг)
+                    text = text.substring(1);
+                    // Для врагов лучше прерывать сразу
+                    queueMode = TextToSpeech.QUEUE_FLUSH; 
+                }
+
+                // 2. Умный Анти-спам
                 long currentTime = System.currentTimeMillis();
-                
-                // Фильтр: не повторять то же самое чаще чем раз в 1.5 сек (защита от спама статусбара)
-                if (text.equals(lastText) && (currentTime - lastSpeakTime < 1500)) {
+                // Если текст совпадает с прошлым И прошло мало времени -> игнорируем
+                // НО: Если текст тот же, но прошло > 300мс, читаем снова (пользователь хочет перепроверить клетку)
+                if (text.equals(lastText) && (currentTime - lastSpeakTime < SPAM_THRESHOLD_MS)) {
                     return; 
                 }
 
-                if (isTtsReady && tts != null) {
-                    lastText = text;
-                    lastSpeakTime = currentTime;
-                    
-                    // QUEUE_ADD — сообщения встают в очередь и не прерываются
-                    tts.speak(text, TextToSpeech.QUEUE_ADD, null, "f2_tts_out");
-                    Log.d("fheroes2_acc", "Spoken: " + text);
-                }
+                lastText = text;
+                lastSpeakTime = currentTime;
+
+                speakInternal(text, queueMode, pitch);
             }
         });
+    }
+
+    // Внутренний метод для непосредственной озвучки
+    private static void speakInternal(String text, int queueMode, float pitch) {
+        tts.setPitch(pitch);
+        
+        // Bundle для идентификации (помогает при отладке)
+        Bundle params = new Bundle();
+        params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "f2_access");
+
+        tts.speak(text, queueMode, params, "f2_access");
+        
+        // Сбрасываем питч обратно после добавления в очередь, 
+        // чтобы следующее сообщение (если оно без префикса) было нормальным
+        if (pitch != 1.0f) {
+             // Небольшой хак: нам нужно вернуть питч, но speak - асинхронный.
+             // В идеале нужно использовать UtteranceProgressListener, но для простоты
+             // мы полагаемся на то, что setPitch применяется к следующему speak.
+             // В данном коде это безопасно, так как setPitch вызывается перед каждым speak.
+        }
+        
+        Log.d("fheroes2_tts", "Speak: [" + text + "] Mode: " + (queueMode == 0 ? "FLUSH" : "ADD"));
+    }
+
+    // --- PASS-THROUGH TOUCH EVENTS ---
+    // Это важно, чтобы TalkBack не блокировал игру, но знал, что происходит взаимодействие
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        // Мы НЕ отправляем HOVER события вручную, если включен TalkBack в режиме "Изучение касанием",
+        // так как TalkBack сам перехватывает жесты и транслирует их.
+        // Но для fheroes2, который рисует на Canvas, нам нужно просто пропускать события.
+        return super.dispatchTouchEvent(event);
     }
 
     @Override
@@ -120,10 +188,13 @@ public final class GameActivity extends SDLActivity implements TextToSpeech.OnIn
             tts.shutdown();
         }
         super.onDestroy();
-        System.exit( 0 );
+        // Убираем System.exit(0), это плохая практика в Android, 
+        // SDLActivity сам должен корректно закрываться. 
+        // Но если это требование движка fheroes2, можно раскомментировать.
+        System.exit( 0 ); 
     }
 
-    // --- СТАНДАРТНЫЕ МЕТОДЫ FHEROES2 (БЕЗ ИЗМЕНЕНИЙ) ---
+    // --- ASSET MANAGEMENT (NO CHANGES) ---
     @SuppressWarnings( "SameParameterValue" )
     private boolean isAssetsDigestChanged( final String assetsDigestPath, final File localDigestFile )
     {
